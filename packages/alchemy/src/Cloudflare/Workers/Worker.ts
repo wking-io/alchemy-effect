@@ -108,6 +108,41 @@ export class WorkerEnvironment extends Context.Service<
   Record<string, any>
 >()("Cloudflare.Workers.WorkerEnvironment") {}
 
+export class WorkerEnvironmentBindingNotFound extends Data.TaggedError(
+  "WorkerEnvironmentBindingNotFound",
+)<{
+  bindingName: string;
+  message: string;
+}> {}
+
+export const workerEnvironmentBinding = <A>(
+  bindingName: string,
+): Effect.Effect<A, WorkerEnvironmentBindingNotFound> =>
+  Effect.serviceOption(WorkerEnvironment).pipe(
+    Effect.flatMap(
+      Option.match({
+        onNone: () =>
+          Effect.fail(
+            new WorkerEnvironmentBindingNotFound({
+              bindingName,
+              message: `WorkerEnvironment is not available while resolving binding '${bindingName}'`,
+            }),
+          ),
+        onSome: (env) => {
+          if (!(bindingName in env)) {
+            return Effect.fail(
+              new WorkerEnvironmentBindingNotFound({
+                bindingName,
+                message: `WorkerEnvironment does not contain binding '${bindingName}'`,
+              }),
+            );
+          }
+          return Effect.succeed(env[bindingName] as A);
+        },
+      }),
+    ),
+  );
+
 export class WorkerExecutionContext extends Context.Service<
   WorkerExecutionContext,
   cf.ExecutionContext

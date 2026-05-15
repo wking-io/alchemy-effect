@@ -24,7 +24,12 @@ export const CloudflareD1 = Layer.effect(
         database: yield* connection.raw,
         secret: yield* betterAuthSecret.pipe(Effect.map(Redacted.value)),
       });
-    }).pipe(Effect.cached);
+    }).pipe(
+      Effect.catchTag("WorkerEnvironmentBindingNotFound", (error) =>
+        Effect.die(error),
+      ),
+      Effect.cached,
+    );
 
     return {
       auth: betterAuth,

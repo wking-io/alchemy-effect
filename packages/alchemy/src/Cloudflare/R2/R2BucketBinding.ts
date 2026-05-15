@@ -2,14 +2,17 @@ import type * as runtime from "@cloudflare/workers-types";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import * as Binding from "../../Binding.ts";
 import * as Output from "../../Output.ts";
 import type { ResourceLike } from "../../Resource.ts";
 import { getRawStream } from "../../Util/Stream.ts";
 import { makeBoundClientService } from "../BoundClient.ts";
-import { isWorker, WorkerEnvironment } from "../Workers/Worker.ts";
+import {
+  isWorker,
+  workerEnvironmentBinding,
+  type WorkerEnvironmentBindingNotFound,
+} from "../Workers/Worker.ts";
 import type { R2Bucket } from "./R2Bucket.ts";
 
 export interface R2Object extends Omit<runtime.R2Object, "writeHttpMetadata"> {
@@ -51,6 +54,8 @@ export class R2Error extends Data.TaggedError("R2Error")<{
   cause: Error;
 }> {}
 
+export type R2BucketClientError = R2Error | WorkerEnvironmentBindingNotFound;
+
 export interface R2MultipartUpload {
   raw: runtime.R2MultipartUpload;
   readonly key: string;
@@ -68,18 +73,18 @@ export type R2UploadedPart = runtime.R2UploadedPart;
 export interface R2UploadPartOptions extends runtime.R2UploadPartOptions {}
 
 export interface R2BucketClient {
-  raw: Effect.Effect<runtime.R2Bucket>;
-  head(key: string): Effect.Effect<R2Object | null, R2Error>;
+  raw: Effect.Effect<runtime.R2Bucket, WorkerEnvironmentBindingNotFound>;
+  head(key: string): Effect.Effect<R2Object | null, R2BucketClientError>;
   get(
     key: string,
     options: R2GetOptions & {
       onlyIf: runtime.R2Conditional | Headers;
     },
-  ): Effect.Effect<R2ObjectBody | R2Object | null, R2Error>;
+  ): Effect.Effect<R2ObjectBody | R2Object | null, R2BucketClientError>;
   get(
     key: string,
     options?: R2GetOptions,
-  ): Effect.Effect<R2ObjectBody | null, R2Error>;
+  ): Effect.Effect<R2ObjectBody | null, R2BucketClientError>;
   put<Err = never>(
     key: string,
     value:
@@ -94,7 +99,7 @@ export interface R2BucketClient {
       onlyIf: R2Conditional | Headers;
       contentLength?: number;
     },
-  ): Effect.Effect<R2Object | null, R2Error | Err>;
+  ): Effect.Effect<R2Object | null, R2BucketClientError | Err>;
   put<Err = never>(
     key: string,
     value:
@@ -105,7 +110,7 @@ export interface R2BucketClient {
       | null
       | Blob,
     options?: R2PutOptions,
-  ): Effect.Effect<R2Object, R2Error | Err>;
+  ): Effect.Effect<R2Object, R2BucketClientError | Err>;
   put<Err = never>(
     key: string,
     value:
@@ -119,17 +124,17 @@ export interface R2BucketClient {
     options: R2PutOptions & {
       contentLength: number;
     },
-  ): Effect.Effect<R2Object, R2Error | Err>;
-  delete(keys: string | string[]): Effect.Effect<void, R2Error>;
-  list(options?: R2ListOptions): Effect.Effect<R2Objects, R2Error>;
+  ): Effect.Effect<R2Object, R2BucketClientError | Err>;
+  delete(keys: string | string[]): Effect.Effect<void, R2BucketClientError>;
+  list(options?: R2ListOptions): Effect.Effect<R2Objects, R2BucketClientError>;
   createMultipartUpload(
     key: string,
     options?: R2MultipartOptions,
-  ): Effect.Effect<R2MultipartUpload, R2Error>;
+  ): Effect.Effect<R2MultipartUpload, R2BucketClientError>;
   resumeMultipartUpload(
     key: string,
     uploadId: string,
-  ): Effect.Effect<R2MultipartUpload, R2Error>;
+  ): Effect.Effect<R2MultipartUpload, R2BucketClientError>;
 }
 
 export declare const R2BucketClientIdentifierTypeId: unique symbol;
@@ -154,11 +159,9 @@ export const R2BucketBindingLive = Layer.effect(
 
     return Effect.fn(function* (bucket: R2Bucket) {
       yield* bind(bucket);
-      const raw = yield* Effect.serviceOption(WorkerEnvironment).pipe(
-        Effect.map(Option.getOrUndefined),
-        Effect.map((env) => env?.[bucket.LogicalId]! as runtime.R2Bucket),
-        Effect.cached,
-      );
+      const raw = yield* workerEnvironmentBinding<runtime.R2Bucket>(
+        bucket.LogicalId,
+      ).pipe(Effect.cached);
       const tryPromise = <T>(fn: () => Promise<T>): Effect.Effect<T, R2Error> =>
         Effect.tryPromise({
           try: fn,
@@ -171,7 +174,7 @@ export const R2BucketBindingLive = Layer.effect(
 
       const use = <T>(
         fn: (raw: runtime.R2Bucket) => Promise<T>,
-      ): Effect.Effect<T, R2Error> =>
+      ): Effect.Effect<T, R2BucketClientError> =>
         raw.pipe(Effect.flatMap((raw) => tryPromise(() => fn(raw))));
 
       const wrapR2Object = (object: runtime.R2Object): R2Object => ({

@@ -5,7 +5,11 @@ import * as Layer from "effect/Layer";
 import * as Binding from "../../Binding.ts";
 import type { ResourceLike } from "../../Resource.ts";
 import { makeBoundClientService } from "../BoundClient.ts";
-import { isWorker, WorkerEnvironment } from "../Workers/Worker.ts";
+import {
+  isWorker,
+  workerEnvironmentBinding,
+  type WorkerEnvironmentBindingNotFound,
+} from "../Workers/Worker.ts";
 import type { SendEmail } from "./SendEmail.ts";
 
 /**
@@ -30,26 +34,30 @@ export class SendEmailError extends Data.TaggedError("SendEmailError")<{
   cause?: unknown;
 }> {}
 
+export type SendEmailClientError =
+  | SendEmailError
+  | WorkerEnvironmentBindingNotFound;
+
 export interface SendEmailClient {
   /**
    * The raw runtime `SendEmail` binding. Use this when you need direct
    * access to the Cloudflare object (e.g. to send a pre-built
    * `EmailMessage` from `cloudflare:email`).
    */
-  raw: Effect.Effect<runtime.SendEmail, never, WorkerEnvironment>;
+  raw: Effect.Effect<runtime.SendEmail, WorkerEnvironmentBindingNotFound>;
   /**
    * Send an email using the builder form. Equivalent to calling
    * `env.<name>.send({ from, to, subject, text, html, ... })`.
    */
   send(
     message: SendEmailMessage,
-  ): Effect.Effect<runtime.EmailSendResult, SendEmailError, WorkerEnvironment>;
+  ): Effect.Effect<runtime.EmailSendResult, SendEmailClientError>;
   /**
    * Send a raw `EmailMessage` (constructed via `cloudflare:email`).
    */
   sendRaw(
     message: runtime.EmailMessage,
-  ): Effect.Effect<runtime.EmailSendResult, SendEmailError, WorkerEnvironment>;
+  ): Effect.Effect<runtime.EmailSendResult, SendEmailClientError>;
 }
 
 /**
@@ -75,9 +83,9 @@ export const SendEmailBindingLive = Layer.effect(
     return Effect.fnUntraced(function* (sender: SendEmail) {
       yield* bind(sender);
 
-      const raw = WorkerEnvironment.useSync(
-        (env) => (env as Record<string, runtime.SendEmail>)[sender.name]!,
-      );
+      const raw = yield* workerEnvironmentBinding<runtime.SendEmail>(
+        sender.name,
+      ).pipe(Effect.cached);
 
       const tryPromise = <T>(
         fn: () => Promise<T>,

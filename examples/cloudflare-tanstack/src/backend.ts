@@ -54,6 +54,11 @@ export default class Backend extends Cloudflare.Worker<Backend>()(
 
         return HttpServerResponse.text("Method not allowed", { status: 405 });
       }).pipe(
+        Effect.catchTag("WorkerEnvironmentBindingNotFound", (error) =>
+          Effect.succeed(
+            HttpServerResponse.text(error.message, { status: 500 }),
+          ),
+        ),
         Effect.catchTag("R2Error", (error) =>
           Effect.succeed(
             HttpServerResponse.text(error.message, { status: 500 }),

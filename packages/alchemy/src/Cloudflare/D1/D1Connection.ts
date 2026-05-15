@@ -1,10 +1,12 @@
 import type * as runtime from "@cloudflare/workers-types";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Binding from "../../Binding.ts";
 import { makeBoundClientService } from "../BoundClient.ts";
-import { WorkerEnvironment } from "../Workers/Worker.ts";
+import {
+  workerEnvironmentBinding,
+  type WorkerEnvironmentBindingNotFound,
+} from "../Workers/Worker.ts";
 import type { D1Database } from "./D1Database.ts";
 import { DatabaseBinding } from "./D1DatabaseBinding.ts";
 
@@ -21,7 +23,10 @@ export class D1PreparedStatement {
   constructor(
     private readonly query: string,
     private readonly binds: ReadonlyArray<unknown>,
-    private readonly rawEff: Effect.Effect<runtime.D1Database>,
+    private readonly rawEff: Effect.Effect<
+      runtime.D1Database,
+      WorkerEnvironmentBindingNotFound
+    >,
   ) {}
 
   /**
@@ -34,32 +39,48 @@ export class D1PreparedStatement {
   }
 
   /** Run the query and return all matching rows. */
-  all<T = unknown>(): Effect.Effect<runtime.D1Result<T>> {
+  all<T = unknown>(): Effect.Effect<
+    runtime.D1Result<T>,
+    WorkerEnvironmentBindingNotFound
+  > {
     return this.withRuntime((stmt) => stmt.all<T>());
   }
 
   /** Run the query and return the first row, or `null` if no rows. */
-  first<T = unknown>(): Effect.Effect<T | null>;
-  first<T = unknown>(column: string): Effect.Effect<T | null>;
-  first<T = unknown>(column?: string): Effect.Effect<T | null> {
+  first<T = unknown>(): Effect.Effect<
+    T | null,
+    WorkerEnvironmentBindingNotFound
+  >;
+  first<T = unknown>(
+    column: string,
+  ): Effect.Effect<T | null, WorkerEnvironmentBindingNotFound>;
+  first<T = unknown>(
+    column?: string,
+  ): Effect.Effect<T | null, WorkerEnvironmentBindingNotFound> {
     return this.withRuntime((stmt) =>
       column !== undefined ? stmt.first<T>(column) : stmt.first<T>(),
     );
   }
 
   /** Run the query as a mutation; returns row metadata. */
-  run<T = unknown>(): Effect.Effect<runtime.D1Result<T>> {
+  run<T = unknown>(): Effect.Effect<
+    runtime.D1Result<T>,
+    WorkerEnvironmentBindingNotFound
+  > {
     return this.withRuntime((stmt) => stmt.run<T>());
   }
 
   /** Run the query and return rows as flat arrays. */
-  raw<T = unknown[]>(): Effect.Effect<T[]>;
+  raw<T = unknown[]>(): Effect.Effect<T[], WorkerEnvironmentBindingNotFound>;
   raw<T = unknown[]>(options: {
     columnNames: true;
-  }): Effect.Effect<[string[], ...T[]]>;
+  }): Effect.Effect<[string[], ...T[]], WorkerEnvironmentBindingNotFound>;
   raw<T = unknown[]>(options?: {
     columnNames: true;
-  }): Effect.Effect<T[] | [string[], ...T[]]> {
+  }): Effect.Effect<
+    T[] | [string[], ...T[]],
+    WorkerEnvironmentBindingNotFound
+  > {
     return this.withRuntime((stmt) =>
       options
         ? stmt.raw<T>(options)
@@ -81,7 +102,7 @@ export class D1PreparedStatement {
 
   private withRuntime<A>(
     fn: (stmt: runtime.D1PreparedStatement) => Promise<A>,
-  ): Effect.Effect<A> {
+  ): Effect.Effect<A, WorkerEnvironmentBindingNotFound> {
     return Effect.flatMap(this.rawEff, (raw) =>
       Effect.promise(() => fn(this._build(raw))),
     );
@@ -93,7 +114,7 @@ export interface D1ConnectionClient {
    * An Effect that resolves to the raw underlying Cloudflare D1Database binding.
    * Use this when you need direct access for libraries like Better Auth.
    */
-  raw: Effect.Effect<runtime.D1Database>;
+  raw: Effect.Effect<runtime.D1Database, WorkerEnvironmentBindingNotFound>;
   /**
    * Prepare a SQL statement. Returns synchronously — the network
    * round-trip happens when you yield one of the statement's
@@ -103,14 +124,16 @@ export interface D1ConnectionClient {
   /**
    * Execute raw SQL without prepared statements.
    */
-  exec: (query: string) => Effect.Effect<runtime.D1ExecResult>;
+  exec: (
+    query: string,
+  ) => Effect.Effect<runtime.D1ExecResult, WorkerEnvironmentBindingNotFound>;
   /**
    * Send multiple prepared statements in a single call.
    * Statements execute sequentially and are rolled back on failure.
    */
   batch: <T = unknown>(
     statements: D1PreparedStatement[],
-  ) => Effect.Effect<runtime.D1Result<T>[]>;
+  ) => Effect.Effect<runtime.D1Result<T>[], WorkerEnvironmentBindingNotFound>;
 }
 
 export class D1Connection extends Binding.Service<
@@ -130,11 +153,9 @@ export const D1ConnectionLive = Layer.effect(
 
     return Effect.fn(function* (database: D1Database) {
       yield* Policy(database);
-      const rawEff = yield* Effect.serviceOption(WorkerEnvironment).pipe(
-        Effect.map(Option.getOrUndefined),
-        Effect.map((env) => env?.[database.LogicalId]! as runtime.D1Database),
-        Effect.cached,
-      );
+      const rawEff = yield* workerEnvironmentBinding<runtime.D1Database>(
+        database.LogicalId,
+      ).pipe(Effect.cached);
 
       return {
         raw: rawEff,

@@ -6,7 +6,11 @@ import * as Stream from "effect/Stream";
 import * as Binding from "../../Binding.ts";
 import type { ResourceLike } from "../../Resource.ts";
 import { makeBoundClientService } from "../BoundClient.ts";
-import { isWorker, WorkerEnvironment } from "../Workers/Worker.ts";
+import {
+  isWorker,
+  workerEnvironmentBinding,
+  type WorkerEnvironmentBindingNotFound,
+} from "../Workers/Worker.ts";
 import { type Images as ImagesLike } from "./Images.ts";
 
 export class ImagesError extends Data.TaggedError("ImagesError")<{
@@ -14,6 +18,8 @@ export class ImagesError extends Data.TaggedError("ImagesError")<{
   code?: number;
   cause: unknown;
 }> {}
+
+export type ImagesClientError = ImagesError | WorkerEnvironmentBindingNotFound;
 
 /**
  * Effect-native handle to the result of `input(...).output(...)`.
@@ -57,7 +63,7 @@ export interface ImageTransformerClient {
  */
 export interface ImagesClient {
   /** Effect resolving to the raw Cloudflare runtime binding. */
-  raw: Effect.Effect<cf.ImagesBinding, never, WorkerEnvironment>;
+  raw: Effect.Effect<cf.ImagesBinding, WorkerEnvironmentBindingNotFound>;
   /**
    * Read image format and dimensions from a stream of bytes.
    * Fails with {@link ImagesError} (code 9412) if the input is not
@@ -66,7 +72,7 @@ export interface ImagesClient {
   info<E = never, R = never>(
     stream: Stream.Stream<Uint8Array, E, R>,
     options?: cf.ImageInputOptions,
-  ): Effect.Effect<cf.ImageInfoResponse, ImagesError, WorkerEnvironment | R>;
+  ): Effect.Effect<cf.ImageInfoResponse, ImagesClientError, R>;
   /**
    * Begin a transformation pipeline. Subsequent `.transform()` /
    * `.draw()` calls are pure; `.output(opts)` runs the pipeline.
@@ -74,7 +80,7 @@ export interface ImagesClient {
   input<E = never, R = never>(
     stream: Stream.Stream<Uint8Array, E, R>,
     options?: cf.ImageInputOptions,
-  ): Effect.Effect<ImageTransformerClient, never, WorkerEnvironment | R>;
+  ): Effect.Effect<ImageTransformerClient, WorkerEnvironmentBindingNotFound, R>;
 }
 
 export class ImagesBinding extends Binding.Service<
@@ -93,12 +99,9 @@ export const ImagesBindingLive = Layer.effect(
 
     return Effect.fn(function* (images: ImagesLike) {
       yield* Policy(images);
-      const env = WorkerEnvironment;
-      const raw = env.pipe(
-        Effect.map(
-          (env) => (env as Record<string, cf.ImagesBinding>)[images.name]!,
-        ),
-      );
+      const raw = yield* workerEnvironmentBinding<cf.ImagesBinding>(
+        images.name,
+      ).pipe(Effect.cached);
 
       return {
         raw,
