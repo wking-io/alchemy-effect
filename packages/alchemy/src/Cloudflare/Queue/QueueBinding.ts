@@ -3,21 +3,25 @@ import * as Layer from "effect/Layer";
 import * as Binding from "../../Binding.ts";
 import type { ResourceLike } from "../../Resource.ts";
 import { makeBoundClientService } from "../BoundClient.ts";
-import { isWorker, WorkerEnvironment } from "../Workers/Worker.ts";
+import {
+  isWorker,
+  workerEnvironmentBinding,
+  type WorkerEnvironmentBindingNotFound,
+} from "../Workers/Worker.ts";
 import type { Queue } from "./Queue.ts";
 
 export interface QueueSender {
-  raw: Effect.Effect<any, never, WorkerEnvironment>;
+  raw: Effect.Effect<any, WorkerEnvironmentBindingNotFound>;
   send(
     body: unknown,
     options?: { contentType?: "json" | "text" },
-  ): Effect.Effect<void, QueueSendError, WorkerEnvironment>;
+  ): Effect.Effect<void, QueueSenderError>;
   sendBatch(
     messages: ReadonlyArray<{
       body: unknown;
       contentType?: "json" | "text";
     }>,
-  ): Effect.Effect<void, QueueSendError, WorkerEnvironment>;
+  ): Effect.Effect<void, QueueSenderError>;
 }
 
 import * as Data from "effect/Data";
@@ -26,6 +30,10 @@ export class QueueSendError extends Data.TaggedError("QueueSendError")<{
   message: string;
   cause?: unknown;
 }> {}
+
+export type QueueSenderError =
+  | QueueSendError
+  | WorkerEnvironmentBindingNotFound;
 
 /**
  * Binding service that turns a {@link Queue} resource into a typed
@@ -102,9 +110,8 @@ export const QueueBindingLive = Layer.effect(
 
     return Effect.fn(function* (queue: Queue) {
       yield* bind(queue);
-      const env = WorkerEnvironment;
-      const raw = env.pipe(
-        Effect.map((env) => (env as Record<string, any>)[queue.LogicalId]),
+      const raw = yield* workerEnvironmentBinding<any>(queue.LogicalId).pipe(
+        Effect.cached,
       );
 
       const tryPromise = <T>(

@@ -5,7 +5,11 @@ import * as Layer from "effect/Layer";
 import * as Binding from "../../Binding.ts";
 import type { ResourceLike } from "../../Resource.ts";
 import { makeBoundClientService } from "../BoundClient.ts";
-import { isWorker, WorkerEnvironment } from "../Workers/Worker.ts";
+import {
+  isWorker,
+  workerEnvironmentBinding,
+  type WorkerEnvironmentBindingNotFound,
+} from "../Workers/Worker.ts";
 import type { KVNamespace } from "./KVNamespace.ts";
 
 export class KVNamespaceError extends Data.TaggedError("KVNamespaceError")<{
@@ -13,209 +17,178 @@ export class KVNamespaceError extends Data.TaggedError("KVNamespaceError")<{
   cause: Error;
 }> {}
 
+export type KVNamespaceClientError =
+  | KVNamespaceError
+  | WorkerEnvironmentBindingNotFound;
+
 export interface KVNamespaceClient<Key extends string = string> {
-  raw: Effect.Effect<runtime.KVNamespace, never, WorkerEnvironment>;
+  raw: Effect.Effect<runtime.KVNamespace, WorkerEnvironmentBindingNotFound>;
   get(
     key: Key,
     options?: Partial<KVNamespaceGetOptions<undefined>>,
-  ): Effect.Effect<string | null, KVNamespaceError, WorkerEnvironment>;
+  ): Effect.Effect<string | null, KVNamespaceClientError>;
   get(
     key: Key,
     type: "text",
-  ): Effect.Effect<string | null, KVNamespaceError, WorkerEnvironment>;
+  ): Effect.Effect<string | null, KVNamespaceClientError>;
   get<ExpectedValue = unknown>(
     key: Key,
     type: "json",
-  ): Effect.Effect<ExpectedValue | null, KVNamespaceError, WorkerEnvironment>;
+  ): Effect.Effect<ExpectedValue | null, KVNamespaceClientError>;
   get(
     key: Key,
     type: "arrayBuffer",
-  ): Effect.Effect<ArrayBuffer | null, KVNamespaceError, WorkerEnvironment>;
+  ): Effect.Effect<ArrayBuffer | null, KVNamespaceClientError>;
   get(
     key: Key,
     type: "stream",
-  ): Effect.Effect<ReadableStream | null, KVNamespaceError, WorkerEnvironment>;
+  ): Effect.Effect<ReadableStream | null, KVNamespaceClientError>;
   get(
     key: Key,
     options?: KVNamespaceGetOptions<"text">,
-  ): Effect.Effect<string | null, KVNamespaceError, WorkerEnvironment>;
+  ): Effect.Effect<string | null, KVNamespaceClientError>;
   get<ExpectedValue = unknown>(
     key: Key,
     options?: KVNamespaceGetOptions<"json">,
-  ): Effect.Effect<ExpectedValue | null, KVNamespaceError, WorkerEnvironment>;
+  ): Effect.Effect<ExpectedValue | null, KVNamespaceClientError>;
   get(
     key: Key,
     options?: KVNamespaceGetOptions<"arrayBuffer">,
-  ): Effect.Effect<ArrayBuffer | null, KVNamespaceError, WorkerEnvironment>;
+  ): Effect.Effect<ArrayBuffer | null, KVNamespaceClientError>;
   get(
     key: Key,
     options?: KVNamespaceGetOptions<"stream">,
-  ): Effect.Effect<ReadableStream | null, KVNamespaceError, WorkerEnvironment>;
+  ): Effect.Effect<ReadableStream | null, KVNamespaceClientError>;
   get(
     key: Array<Key>,
     type: "text",
-  ): Effect.Effect<
-    Map<string, string | null>,
-    KVNamespaceError,
-    WorkerEnvironment
-  >;
+  ): Effect.Effect<Map<string, string | null>, KVNamespaceClientError>;
   get<ExpectedValue = unknown>(
     key: Array<Key>,
     type: "json",
-  ): Effect.Effect<
-    Map<string, ExpectedValue | null>,
-    KVNamespaceError,
-    WorkerEnvironment
-  >;
+  ): Effect.Effect<Map<string, ExpectedValue | null>, KVNamespaceClientError>;
   get(
     key: Array<Key>,
     options?: Partial<KVNamespaceGetOptions<undefined>>,
-  ): Effect.Effect<
-    Map<string, string | null>,
-    KVNamespaceError,
-    WorkerEnvironment
-  >;
+  ): Effect.Effect<Map<string, string | null>, KVNamespaceClientError>;
   get(
     key: Array<Key>,
     options?: KVNamespaceGetOptions<"text">,
-  ): Effect.Effect<
-    Map<string, string | null>,
-    KVNamespaceError,
-    WorkerEnvironment
-  >;
+  ): Effect.Effect<Map<string, string | null>, KVNamespaceClientError>;
   get<ExpectedValue = unknown>(
     key: Array<Key>,
     options?: KVNamespaceGetOptions<"json">,
-  ): Effect.Effect<
-    Map<string, ExpectedValue | null>,
-    KVNamespaceError,
-    WorkerEnvironment
-  >;
+  ): Effect.Effect<Map<string, ExpectedValue | null>, KVNamespaceClientError>;
   list<Metadata = unknown>(
     options?: KVNamespaceListOptions,
   ): Effect.Effect<
     KVNamespaceListResult<Metadata, Key>,
-    KVNamespaceError,
-    WorkerEnvironment
+    KVNamespaceClientError
   >;
   put(
     key: Key,
     value: string | ArrayBuffer | ArrayBufferView | ReadableStream,
     options?: KVNamespacePutOptions,
-  ): Effect.Effect<void, KVNamespaceError, WorkerEnvironment>;
+  ): Effect.Effect<void, KVNamespaceClientError>;
   getWithMetadata<Metadata = unknown>(
     key: Key,
     options?: Partial<KVNamespaceGetOptions<undefined>>,
   ): Effect.Effect<
     KVNamespaceGetWithMetadataResult<string, Metadata>,
-    KVNamespaceError,
-    WorkerEnvironment
+    KVNamespaceClientError
   >;
   getWithMetadata<Metadata = unknown>(
     key: Key,
     type: "text",
   ): Effect.Effect<
     KVNamespaceGetWithMetadataResult<string, Metadata>,
-    KVNamespaceError,
-    WorkerEnvironment
+    KVNamespaceClientError
   >;
   getWithMetadata<ExpectedValue = unknown, Metadata = unknown>(
     key: Key,
     type: "json",
   ): Effect.Effect<
     KVNamespaceGetWithMetadataResult<ExpectedValue, Metadata>,
-    KVNamespaceError,
-    WorkerEnvironment
+    KVNamespaceClientError
   >;
   getWithMetadata<Metadata = unknown>(
     key: Key,
     type: "arrayBuffer",
   ): Effect.Effect<
     KVNamespaceGetWithMetadataResult<ArrayBuffer, Metadata>,
-    KVNamespaceError,
-    WorkerEnvironment
+    KVNamespaceClientError
   >;
   getWithMetadata<Metadata = unknown>(
     key: Key,
     type: "stream",
   ): Effect.Effect<
     KVNamespaceGetWithMetadataResult<ReadableStream, Metadata>,
-    KVNamespaceError,
-    WorkerEnvironment
+    KVNamespaceClientError
   >;
   getWithMetadata<Metadata = unknown>(
     key: Key,
     options: KVNamespaceGetOptions<"text">,
   ): Effect.Effect<
     KVNamespaceGetWithMetadataResult<string, Metadata>,
-    KVNamespaceError,
-    WorkerEnvironment
+    KVNamespaceClientError
   >;
   getWithMetadata<ExpectedValue = unknown, Metadata = unknown>(
     key: Key,
     options: KVNamespaceGetOptions<"json">,
   ): Effect.Effect<
     KVNamespaceGetWithMetadataResult<ExpectedValue, Metadata>,
-    KVNamespaceError,
-    WorkerEnvironment
+    KVNamespaceClientError
   >;
   getWithMetadata<Metadata = unknown>(
     key: Key,
     options: KVNamespaceGetOptions<"arrayBuffer">,
   ): Effect.Effect<
     KVNamespaceGetWithMetadataResult<ArrayBuffer, Metadata>,
-    KVNamespaceError,
-    WorkerEnvironment
+    KVNamespaceClientError
   >;
   getWithMetadata<Metadata = unknown>(
     key: Key,
     options: KVNamespaceGetOptions<"stream">,
   ): Effect.Effect<
     KVNamespaceGetWithMetadataResult<ReadableStream, Metadata>,
-    KVNamespaceError,
-    WorkerEnvironment
+    KVNamespaceClientError
   >;
   getWithMetadata<Metadata = unknown>(
     key: Array<Key>,
     type: "text",
   ): Effect.Effect<
     Map<string, KVNamespaceGetWithMetadataResult<string, Metadata>>,
-    KVNamespaceError,
-    WorkerEnvironment
+    KVNamespaceClientError
   >;
   getWithMetadata<ExpectedValue = unknown, Metadata = unknown>(
     key: Array<Key>,
     type: "json",
   ): Effect.Effect<
     Map<string, KVNamespaceGetWithMetadataResult<ExpectedValue, Metadata>>,
-    KVNamespaceError,
-    WorkerEnvironment
+    KVNamespaceClientError
   >;
   getWithMetadata<Metadata = unknown>(
     key: Array<Key>,
     options?: Partial<KVNamespaceGetOptions<undefined>>,
   ): Effect.Effect<
     Map<string, KVNamespaceGetWithMetadataResult<string, Metadata>>,
-    KVNamespaceError,
-    WorkerEnvironment
+    KVNamespaceClientError
   >;
   getWithMetadata<Metadata = unknown>(
     key: Array<Key>,
     options?: KVNamespaceGetOptions<"text">,
   ): Effect.Effect<
     Map<string, KVNamespaceGetWithMetadataResult<string, Metadata>>,
-    KVNamespaceError,
-    WorkerEnvironment
+    KVNamespaceClientError
   >;
   getWithMetadata<ExpectedValue = unknown, Metadata = unknown>(
     key: Array<Key>,
     options?: KVNamespaceGetOptions<"json">,
   ): Effect.Effect<
     Map<string, KVNamespaceGetWithMetadataResult<ExpectedValue, Metadata>>,
-    KVNamespaceError,
-    WorkerEnvironment
+    KVNamespaceClientError
   >;
-  delete(key: Key): Effect.Effect<void, KVNamespaceError, WorkerEnvironment>;
+  delete(key: Key): Effect.Effect<void, KVNamespaceClientError>;
 }
 
 export class KVNamespaceBinding extends Binding.Service<
@@ -235,16 +208,12 @@ export const KVNamespaceBindingLive = Layer.effect(
 
     return Effect.fn(function* (bucket: KVNamespace) {
       yield* bind(bucket);
-      const env = WorkerEnvironment;
-      const raw = env.pipe(
-        Effect.map(
-          (env) =>
-            (env as Record<string, runtime.KVNamespace>)[bucket.LogicalId],
-        ),
-      );
+      const raw = yield* workerEnvironmentBinding<runtime.KVNamespace<string>>(
+        bucket.LogicalId,
+      ).pipe(Effect.cached);
       const tryPromise = <T>(
         fn: () => Promise<T>,
-      ): Effect.Effect<T, KVNamespaceError> =>
+      ): Effect.Effect<T, KVNamespaceClientError> =>
         Effect.tryPromise({
           try: fn,
           catch: (error: any) =>
@@ -256,7 +225,7 @@ export const KVNamespaceBindingLive = Layer.effect(
 
       const use = <T>(
         fn: (raw: runtime.KVNamespace<string>) => Promise<T>,
-      ): Effect.Effect<T, KVNamespaceError, WorkerEnvironment> =>
+      ): Effect.Effect<T, KVNamespaceClientError> =>
         raw.pipe(Effect.flatMap((raw) => tryPromise(() => fn(raw))));
 
       return {

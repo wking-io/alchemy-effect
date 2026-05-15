@@ -4,13 +4,21 @@ import * as Layer from "effect/Layer";
 import * as Binding from "../../Binding.ts";
 import type { ResourceLike } from "../../Resource.ts";
 import { makeBoundClientService } from "../BoundClient.ts";
-import { isWorker, WorkerEnvironment } from "../Workers/Worker.ts";
+import {
+  isWorker,
+  workerEnvironmentBinding,
+  type WorkerEnvironmentBindingNotFound,
+} from "../Workers/Worker.ts";
 import { type Artifacts as ArtifactsLike } from "./Artifacts.ts";
 
 export class ArtifactsError extends Data.TaggedError("ArtifactsError")<{
   message: string;
   cause: Error;
 }> {}
+
+export type ArtifactsClientError =
+  | ArtifactsError
+  | WorkerEnvironmentBindingNotFound;
 
 export type Scope = "read" | "write";
 
@@ -49,13 +57,13 @@ export interface ArtifactsRepoClient {
   createToken(
     scope?: Scope,
     ttl?: number,
-  ): Effect.Effect<ArtifactsCreateTokenResult, ArtifactsError>;
-  listTokens(): Effect.Effect<ArtifactsTokenListResult, ArtifactsError>;
-  revokeToken(tokenOrId: string): Effect.Effect<boolean, ArtifactsError>;
+  ): Effect.Effect<ArtifactsCreateTokenResult, ArtifactsClientError>;
+  listTokens(): Effect.Effect<ArtifactsTokenListResult, ArtifactsClientError>;
+  revokeToken(tokenOrId: string): Effect.Effect<boolean, ArtifactsClientError>;
   fork(
     name: string,
     opts?: ArtifactsForkOptions,
-  ): Effect.Effect<ArtifactsCreateRepoResult, ArtifactsError>;
+  ): Effect.Effect<ArtifactsCreateRepoResult, ArtifactsClientError>;
 }
 
 /**
@@ -68,32 +76,20 @@ export interface ArtifactsRepoClient {
  */
 export interface ArtifactsClient {
   /** Effect resolving to the raw Cloudflare runtime binding. */
-  raw: Effect.Effect<Artifacts, never, WorkerEnvironment>;
+  raw: Effect.Effect<Artifacts, WorkerEnvironmentBindingNotFound>;
   create(
     name: string,
     opts?: ArtifactsCreateOptions,
-  ): Effect.Effect<
-    ArtifactsCreateRepoResult,
-    ArtifactsError,
-    WorkerEnvironment
-  >;
+  ): Effect.Effect<ArtifactsCreateRepoResult, ArtifactsClientError>;
   /** Look up an existing repo by name. Fails with `ArtifactsError` if missing. */
-  get(
-    name: string,
-  ): Effect.Effect<ArtifactsRepoClient, ArtifactsError, WorkerEnvironment>;
+  get(name: string): Effect.Effect<ArtifactsRepoClient, ArtifactsClientError>;
   list(
     opts?: ArtifactsListOptions,
-  ): Effect.Effect<ArtifactsRepoListResult, ArtifactsError, WorkerEnvironment>;
-  delete(
-    name: string,
-  ): Effect.Effect<boolean, ArtifactsError, WorkerEnvironment>;
+  ): Effect.Effect<ArtifactsRepoListResult, ArtifactsClientError>;
+  delete(name: string): Effect.Effect<boolean, ArtifactsClientError>;
   import(
     opts: ArtifactsImportOptions,
-  ): Effect.Effect<
-    ArtifactsCreateRepoResult,
-    ArtifactsError,
-    WorkerEnvironment
-  >;
+  ): Effect.Effect<ArtifactsCreateRepoResult, ArtifactsClientError>;
 }
 
 export class ArtifactsBinding extends Binding.Service<
@@ -113,16 +109,13 @@ export const ArtifactsBindingLive = Layer.effect(
 
     return Effect.fn(function* (artifacts: ArtifactsLike) {
       yield* Policy(artifacts);
-      const env = WorkerEnvironment;
-      const raw = env.pipe(
-        Effect.map(
-          (env) => (env as Record<string, Artifacts>)[artifacts.name]!,
-        ),
-      );
+      const raw = yield* workerEnvironmentBinding<Artifacts>(
+        artifacts.name,
+      ).pipe(Effect.cached);
 
       const use = <T>(
         fn: (raw: Artifacts) => Promise<T>,
-      ): Effect.Effect<T, ArtifactsError, WorkerEnvironment> =>
+      ): Effect.Effect<T, ArtifactsClientError> =>
         raw.pipe(Effect.flatMap((raw) => tryPromise(() => fn(raw))));
 
       return {
@@ -176,7 +169,7 @@ export const ArtifactsBindingPolicyLive = ArtifactsBindingPolicy.layer.succeed(
 
 const tryPromise = <T>(
   fn: () => Promise<T>,
-): Effect.Effect<T, ArtifactsError> =>
+): Effect.Effect<T, ArtifactsClientError> =>
   Effect.tryPromise({
     try: fn,
     catch: (error: any) =>

@@ -105,7 +105,13 @@ export default class D1Worker extends Cloudflare.Worker<D1Worker>()(
         }
 
         return HttpServerResponse.text("Not Found", { status: 404 });
-      }),
+      }).pipe(
+        Effect.catchTag("WorkerEnvironmentBindingNotFound", (error) =>
+          Effect.succeed(
+            HttpServerResponse.text(error.message, { status: 500 }),
+          ),
+        ),
+      ),
     };
   }).pipe(Effect.provide(Cloudflare.D1ConnectionLive)),
 ) {}

@@ -4,7 +4,11 @@ import * as Layer from "effect/Layer";
 import * as Binding from "../../Binding.ts";
 import type { ResourceLike } from "../../Resource.ts";
 import { makeBoundClientService } from "../BoundClient.ts";
-import { isWorker, WorkerEnvironment } from "../Workers/Worker.ts";
+import {
+  isWorker,
+  workerEnvironmentBinding,
+  type WorkerEnvironmentBindingNotFound,
+} from "../Workers/Worker.ts";
 import type { AnalyticsEngineDataset as AnalyticsEngineDatasetLike } from "./AnalyticsEngineDataset.ts";
 
 export interface AnalyticsEngineDataPoint {
@@ -24,11 +28,18 @@ export class AnalyticsEngineDatasetError extends Data.TaggedError(
   cause: Error;
 }> {}
 
+export type AnalyticsEngineDatasetClientError =
+  | AnalyticsEngineDatasetError
+  | WorkerEnvironmentBindingNotFound;
+
 export interface AnalyticsEngineDatasetClient {
-  raw: Effect.Effect<RuntimeAnalyticsEngineDataset, never, WorkerEnvironment>;
+  raw: Effect.Effect<
+    RuntimeAnalyticsEngineDataset,
+    WorkerEnvironmentBindingNotFound
+  >;
   writeDataPoint(
     dataPoint: AnalyticsEngineDataPoint,
-  ): Effect.Effect<void, AnalyticsEngineDatasetError, WorkerEnvironment>;
+  ): Effect.Effect<void, AnalyticsEngineDatasetClientError>;
 }
 
 export class AnalyticsEngineDatasetBinding extends Binding.Service<
@@ -51,14 +62,10 @@ export const AnalyticsEngineDatasetBindingLive = Layer.effect(
     return Effect.fnUntraced(function* (dataset: AnalyticsEngineDatasetLike) {
       yield* bind(dataset);
 
-      const raw = WorkerEnvironment.pipe(
-        Effect.map(
-          (env) =>
-            (env as Record<string, RuntimeAnalyticsEngineDataset>)[
-              dataset.name
-            ]!,
-        ),
-      );
+      const raw =
+        yield* workerEnvironmentBinding<RuntimeAnalyticsEngineDataset>(
+          dataset.name,
+        ).pipe(Effect.cached);
 
       return {
         raw,

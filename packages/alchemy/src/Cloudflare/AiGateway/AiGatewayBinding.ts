@@ -3,11 +3,14 @@
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Binding from "../../Binding.ts";
 import type { ResourceLike } from "../../Resource.ts";
 import { makeBoundClientService } from "../BoundClient.ts";
-import { isWorker, WorkerEnvironment } from "../Workers/Worker.ts";
+import {
+  isWorker,
+  workerEnvironmentBinding,
+  type WorkerEnvironmentBindingNotFound,
+} from "../Workers/Worker.ts";
 import type { AiGateway as AiGatewayResource } from "./AiGateway.ts";
 
 /**
@@ -24,6 +27,10 @@ export class AiGatewayError extends Data.TaggedError("AiGatewayError")<{
   cause: unknown;
 }> {}
 
+export type AiGatewayClientError =
+  | AiGatewayError
+  | WorkerEnvironmentBindingNotFound;
+
 /**
  * Effect-native client for a Cloudflare AI Gateway Worker binding.
  *
@@ -36,37 +43,35 @@ export interface AiGatewayClient {
   /**
    * Effect resolving to the raw Workers AI binding.
    */
-  raw: Effect.Effect<Ai, never, WorkerEnvironment>;
+  raw: Effect.Effect<Ai, WorkerEnvironmentBindingNotFound>;
   /**
    * Effect resolving to the raw AI Gateway runtime binding.
    */
-  gateway: Effect.Effect<AiGateway, never, WorkerEnvironment>;
+  gateway: Effect.Effect<AiGateway, WorkerEnvironmentBindingNotFound>;
   /**
    * Update metadata on an existing AI Gateway log entry.
    */
   patchLog(
     logId: string,
     data: Parameters<AiGateway["patchLog"]>[1],
-  ): Effect.Effect<void, AiGatewayError, WorkerEnvironment>;
+  ): Effect.Effect<void, AiGatewayClientError>;
   /**
    * Read an AI Gateway log entry by ID.
    */
-  getLog(
-    logId: string,
-  ): Effect.Effect<AiGatewayLog, AiGatewayError, WorkerEnvironment>;
+  getLog(logId: string): Effect.Effect<AiGatewayLog, AiGatewayClientError>;
   /**
    * Build a provider URL routed through this gateway.
    */
   getUrl(
     provider?: Parameters<AiGateway["getUrl"]>[0],
-  ): Effect.Effect<string, AiGatewayError, WorkerEnvironment>;
+  ): Effect.Effect<string, AiGatewayClientError>;
   /**
    * Run an AI Gateway request through the Cloudflare runtime binding.
    */
   run(
     data: Parameters<AiGateway["run"]>[0],
     options?: Parameters<AiGateway["run"]>[1],
-  ): Effect.Effect<Response, AiGatewayError, WorkerEnvironment>;
+  ): Effect.Effect<Response, AiGatewayClientError>;
 }
 
 /**
@@ -152,9 +157,7 @@ export const AiGatewayBindingLive = Layer.effect(
       // method is invoked. Resolving eagerly would require WorkerEnvironment
       // at deploy time, where it's intentionally not provided.
       const gatewayIdAccessor = yield* gateway.gatewayId;
-      const ai = yield* Effect.serviceOption(WorkerEnvironment).pipe(
-        Effect.map(Option.getOrUndefined),
-        Effect.map((env) => env?.[gateway.LogicalId]! as Ai),
+      const ai = yield* workerEnvironmentBinding<Ai>(gateway.LogicalId).pipe(
         Effect.cached,
       );
       const runtimeGateway = yield* Effect.zip(ai, gatewayIdAccessor).pipe(
@@ -164,7 +167,7 @@ export const AiGatewayBindingLive = Layer.effect(
 
       const use = <T>(
         fn: (gateway: AiGateway) => Promise<T>,
-      ): Effect.Effect<T, AiGatewayError, WorkerEnvironment> =>
+      ): Effect.Effect<T, AiGatewayClientError> =>
         runtimeGateway.pipe(
           Effect.flatMap((gateway) => tryPromise(() => fn(gateway))),
         );
